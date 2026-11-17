@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>PhotoDrop</title>
+<style>
+  :root {
+    --room:#E9EEF2; --table:#FFFFFF; --mount:#F7F6F2; --mount-edge:#D6D9DE; --ink:#1F2730; --ink-2:#5B6672;
+    --act:#2457C5; --act-ink:#FFFFFF; --ok:#2E8B57; --bad:#C2352B; --line:#D3D9DF;
+    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --room:#161B21; --table:#222932; --mount:#2C343E; --mount-edge:#3A4450; --ink:#E7ECF1; --ink-2:#9AA6B2;
+            --act:#7FA2FF; --act-ink:#0E1A33; --ok:#5CC48A; --bad:#FF7A70; --line:#36404B; }
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--room); color:var(--ink); font:16px/1.5 var(--font); }
+  button, input, textarea { font:inherit; color:inherit; }
+  :focus-visible { outline:3px solid var(--act); outline-offset:2px; border-radius:8px; }
+  .hidden { display:none !important; }
+
+  .app { max-width:1180px; margin:0 auto; padding:20px 16px calc(32px + env(safe-area-inset-bottom)); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  .brand { font-size:1.35rem; font-weight:700; letter-spacing:-.01em; margin:0; }
+  .chip { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background:var(--table); border:1px solid var(--line); font-size:.9rem; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--ink-2); flex:none; }
+  .dot.on { background:var(--ok); } .dot.bad { background:var(--bad); }
+  .code { font-variant-numeric:tabular-nums; font-weight:700; letter-spacing:.08em; }
+
+  .layout { display:grid; gap:20px; }
+  @media (min-width:880px) { .layout { grid-template-columns:minmax(300px,380px) 1fr; align-items:start; } .side { position:sticky; top:20px; } }
+
+  .panel { background:var(--table); border:1px solid var(--line); border-radius:16px; padding:20px; }
+  .panel + .panel { margin-top:16px; }
+  .panel h2 { font-size:1.05rem; margin:0 0 6px; }
+  .lead { color:var(--ink-2); margin:0 0 16px; font-size:.95rem; }
+
+  /* the slide mount: used for the QR code and for every photo */
+  .mount { background:var(--mount); border:1px solid var(--mount-edge); border-radius:10px; padding:12px 12px 10px;
+           box-shadow:0 1px 0 var(--mount-edge), 0 8px 18px rgba(31,39,48,.10); }
+  .window { aspect-ratio:1; border-radius:6px; overflow:hidden; background:var(--room); display:grid; place-items:center; position:relative; }
+  .window img { width:100%; height:100%; object-fit:cover; display:block; }
+  .qrmount { max-width:260px; margin:0 auto 16px; }
+  .qrmount .window { background:#fff; padding:10px; }
+  .qrmount svg { width:100%; height:auto; display:block; }
+
+  ol.steps { margin:0 0 16px; padding-left:1.3em; color:var(--ink-2); } ol.steps li { margin:2px 0; }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:48px; padding:0 18px; border-radius:12px;
+         border:1px solid transparent; background:var(--act); color:var(--act-ink); font-weight:650; cursor:pointer; text-decoration:none; }
+  .btn.quiet { background:transparent; color:var(--act); border-color:var(--line); }
+  .btn.small { min-height:36px; padding:0 12px; font-size:.9rem; font-weight:600; }
+  .btn.wide { width:100%; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=file] { display:none; }
+
+  .seg { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; border-radius:12px; background:var(--room); margin:14px 0 6px; }
+  .seg input { position:absolute; opacity:0; pointer-events:none; }
+  .seg label { text-align:center; padding:9px 8px; border-radius:9px; font-size:.88rem; line-height:1.25; cursor:pointer; color:var(--ink-2); }
+  .seg input:checked + label { background:var(--table); color:var(--ink); font-weight:650; box-shadow:0 1px 3px rgba(31,39,48,.12); }
+  .seg input:focus-visible + label { outline:3px solid var(--act); }
+  .hint { color:var(--ink-2); font-size:.85rem; margin:6px 0 0; }
+
+  textarea { width:100%; min-height:72px; resize:vertical; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:var(--room); }
+
+  /* the light table */
+  .table { background:var(--table); border:1px solid var(--line); border-radius:18px; padding:18px; min-height:320px;
+           box-shadow:inset 0 0 60px rgba(255,255,255,.6); }
+  @media (prefers-color-scheme: dark) { .table { box-shadow:inset 0 0 60px rgba(127,162,255,.06); } }
+  .tablehead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .tablehead h2 { margin:0; font-size:1.05rem; }
+  .empty { color:var(--ink-2); text-align:center; padding:64px 16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:18px; }
+  @media (max-width:420px) { .grid { grid-template-columns:1fr 1fr; gap:12px; } }
+
+  .slide.clickable { cursor:zoom-in; }
+  .slide .ext { font-size:1.6rem; font-weight:800; color:var(--ink-2); text-transform:lowercase; }
+  .label { margin-top:8px; font-size:.82rem; line-height:1.3; }
+  .label .name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:650; }
+  .label .sub { display:block; color:var(--ink-2); }
+  .label .err { display:block; color:var(--bad); }
+  .dir { position:absolute; top:6px; left:6px; font-size:.72rem; font-weight:700; padding:2px 7px; border-radius:999px;
+         background:rgba(255,255,255,.88); color:#1F2730; }
+  .prog { position:absolute; left:8px; right:8px; bottom:8px; height:6px; border-radius:3px; background:rgba(255,255,255,.7); overflow:hidden; }
+  .prog i { display:block; height:100%; width:0; background:var(--act); transition:width .15s linear; }
+  .actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+
+  .note { grid-column:1 / -1; background:var(--mount); border:1px solid var(--mount-edge); border-left:4px solid var(--act); border-radius:10px; padding:10px 12px; }
+  .note pre { margin:4px 0 8px; white-space:pre-wrap; word-break:break-word; font:inherit; }
+  .note .sub { color:var(--ink-2); font-size:.8rem; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .slide.arrive { animation:settle .35s ease-out; }
+    @keyframes settle { from { transform:translateY(-10px) rotate(-1.5deg); opacity:0; } to { transform:none; opacity:1; } }
+  }
+
+  .dropping .table { outline:3px dashed var(--act); outline-offset:-10px; }
+
+  dialog { border:0; padding:0; background:transparent; max-width:min(96vw, 1100px); max-height:94vh; }
+  dialog::backdrop { background:rgba(10,14,18,.82); }
+  .viewer { display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .viewer img { max-width:100%; max-height:80vh; border-radius:8px; display:block; }
+  .viewer .row { justify-content:center; }
+
+  .toast { position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--ink); color:var(--room);
+           padding:10px 16px; border-radius:12px; font-size:.9rem; z-index:10; }
+
+  details.how { margin-top:16px; color:var(--ink-2); font-size:.9rem; }
+  details.how summary { cursor:pointer; color:var(--ink); font-weight:600; }
+  details.how p { margin:.6em 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1 class="brand">PhotoDrop</h1>
+    <div class="chip" role="status" aria-live="polite">
+      <span id="dot" class="dot"></span><span id="sstatus">Starting</span>
+      <span id="codewrap" class="hidden">code <span id="code" class="code"></span></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="side">
+      <!-- Computer side, before a phone joins -->
+      <section id="pair" class="panel hidden">
+        <h2>Connect your phone</h2>
+        <p class="lead">Photos go straight from one device to the other, encrypted. Nothing is uploaded.</p>
+        <div class="mount qrmount"><div class="window" id="qr" aria-label="QR code to connect your phone"></div></div>
+        <ol class="steps">
+          <li>Open the camera on your phone.</li>
+          <li>Point it at the code and tap the link.</li>
+          <li>Check that both screens show the same code.</li>
+        </ol>
+        <div class="row">
+          <button id="copy" class="btn quiet small" type="button">Copy link</button>
+          <button id="newcode" class="btn quiet small" type="button">New code</button>
+        </div>
+        <p class="hint">The code works once. Anyone who scans it first gets in, so don't share a photo of it.</p>
+      </section>
+
+      <!-- Both sides, once connected -->
+      <section id="session" class="hidden">
+        <div class="panel" id="drop">
+          <h2>Send</h2>
+          <label class="btn wide" for="file">Choose photos or files</label>
+          <input id="file" type="file" multiple>
+          <div class="seg" role="radiogroup" aria-label="Photo privacy">
+            <input type="radio" name="mode" id="modeStrip" value="strip" checked><label for="modeStrip">Remove location and camera info</label>
+            <input type="radio" name="mode" id="modeOrig" value="orig"><label for="modeOrig">Send the original</label>
+          </div>
+          <p class="hint" id="modehint">Same image quality. Only the hidden details are removed.</p>
+          <p class="hint desktop-only">You can also drop files anywhere on this page or paste them.</p>
+        </div>
+        <div class="panel">
+          <h2>Message</h2>
+          <textarea id="msg" placeholder="A link, an address, a note…" aria-label="Message"></textarea>
+          <div class="row" style="margin-top:8px"><button id="sendtxt" class="btn small" type="button">Send message</button></div>
+        </div>
+        <div class="row" style="margin-top:16px"><button id="leave" class="btn quiet small" type="button">Disconnect</button></div>
+      </section>
+
+      <section id="again" class="panel hidden">
+        <h2 id="againtitle">Disconnected</h2>
+        <p id="againmsg" class="lead"></p>
+        <button id="restart" class="btn wide" type="button">Start again</button>
+      </section>
+
+      <details class="how panel">
+        <summary>How it works</summary>
+        <p><b>Direct.</b> Your devices connect to each other with WebRTC. Files never touch this website.</p>
+        <p><b>The code is the key.</b> The QR link ends in <code>#ID.KEY</code>. The part after <code>#</code> stays in your browser and is never sent anywhere. Everything is encrypted with that key (AES-256-GCM) before it leaves your device.</p>
+        <p><b>Finding each other.</b> A public PeerJS server introduces the two browsers. It sees an anonymous ID and IP addresses, never your files. If a direct path is blocked, a relay passes the data along, still encrypted.</p>
+        <p><b>Photo details.</b> "Remove location and camera info" cuts the hidden data (GPS, camera, date) out of JPEG and PNG files without touching the image. Other formats, like HEIC, are converted to high-quality JPEG.</p>
+        <p><b>Limits.</b> Keep both pages open while sending. Files are held in memory, up to 1 GB each.</p>
+      </details>
+    </div>
+
+    <main class="table" aria-label="Photos and messages">
+      <div class="tablehead">
+        <h2>On the table</h2>
+        <button id="saveall" class="btn quiet small hidden" type="button">Save all received</button>
+      </div>
+      <p id="empty" class="empty">Photos and messages you send or receive appear here.</p>
+      <div id="log" class="grid"></div>
+    </main>
+  </div>
+</div>
+
+<dialog id="viewer" aria-label="Photo viewer">
+  <div class="viewer">
+    <img id="vimg" alt="">
+    <div class="row">
+      <button id="vshare" class="btn small hidden" type="button">Save to Photos</button>
+      <a id="vdl" class="btn small" href="#">Download</a>
+      <button id="vclose" class="btn quiet small" type="button" style="background:var(--table)">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<script src="vendor/peerjs.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const CHUNK = 128 * 1024, MAX_BYTES = 1024 ** 3, IMG_OK = /^image\/(jpeg|png|webp|gif)$/;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const b64 = {
+  enc: u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+  dec: s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0)),
+};
+const fmt = n => n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(0) + ' KB' : (n/1048576).toFixed(1) + ' MB';
+const MIME = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp', gif:'image/gif', heic:'image/heic', heif:'image/heif', mp4:'video/mp4', mov:'video/quicktime', pdf:'application/pdf' };
+const safeName = s => String(s).replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 120) || 'file';
+const ext = n => (String(n).split('.').pop() || '').toLowerCase();
+
+// ---------- crypto: AES-256-GCM, key lives only in the URL fragment ----------
+const newKey = () => crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
+const exportKey = async k => b64.enc(new Uint8Array(await crypto.subtle.exportKey('raw', k)));
+const importKey = s => crypto.subtle.importKey('raw', b64.dec(s), 'AES-GCM', false, ['encrypt','decrypt']);
+// aad binds each message to who sent it, which transfer, and its position, so messages
+// can't be reflected back, swapped between transfers or reordered undetected.
+async function seal(key, data, aad) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name:'AES-GCM', iv, additionalData: enc.encode(aad) }, key, data));
+  return { iv, ct };
+}
+const unseal = (key, { iv, ct }, aad) =>
+  crypto.subtle.decrypt({ name:'AES-GCM', iv: new Uint8Array(iv), additionalData: enc.encode(aad) }, key, new Uint8Array(ct));
+// 4-digit code shown on both screens, so you can see you're connected to your own device.
+async function sessionCode(ks) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode('photodrop-code|' + ks)));
+  return String(((d[0] << 8) | d[1]) % 10000).padStart(4, '0');
+}
+
+// ---------- photos: remove metadata WITHOUT re-encoding (pixels untouched) ----------
+const strippable = f => /^image\/(jpeg|png|webp|heic|heif)$/i.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
+const concat = parts => { const o = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let i = 0; for (const p of parts) { o.set(p, i); i += p.length; } return o; };
+
+function exifOrientation(buf) {            // buf = APP1 payload; returns 1..8 or 0 if absent
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  if (buf.length < 20 || dv.getUint32(0) !== 0x45786966 || dv.getUint16(4) !== 0) return 0;   // "Exif\0\0"
+  const le = dv.getUint16(6) === 0x4949, t = 6;
+  const r16 = o => dv.getUint16(t + o, le), r32 = o => dv.getUint32(t + o, le);
+  try {
+    const ifd = r32(4), n = r16(ifd);
+    for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (r16(e) === 0x0112) { const v = r16(e + 8); return v >= 1 && v <= 8 ? v : 0; } }
+  } catch {}
+  return 0;
+}
+function minimalExif(o) {                  // APP1 holding ONLY the orientation tag, so the photo still shows upright
+  return new Uint8Array([0xFF,0xE1,0x00,0x22, 0x45,0x78,0x69,0x66,0,0, 0x49,0x49,0x2A,0,8,0,0,0, 1,0, 0x12,0x01,3,0,1,0,0,0,o,0,0,0, 0,0,0,0]);
+}
+function stripJpeg(u8) {
+  if (u8[0] !== 0xFF || u8[1] !== 0xD8) throw new Error('not a jpeg');
+  const segs = []; let orient = 1, p = 2;
+  while (p < u8.length) {
+    while (u8[p] === 0xFF && u8[p + 1] === 0xFF) p++;
+    if (u8[p] !== 0xFF) throw new Error('bad jpeg');
+    const m = u8[p + 1];
+    if (m === 0xD9) break;                                  // EOI: anything after it (HDR/gain-map extras) is dropped
+    const end = p + 2 + ((u8[p + 2] << 8) | u8[p + 3]);
+    if (end > u8.length) throw new Error('truncated jpeg');
+    const payload = u8.subarray(p + 4, end);
+    if (m === 0xE1) orient = exifOrientation(payload) || orient;
+    const isApp = m >= 0xE0 && m <= 0xEF;
+    const keep = !isApp && m !== 0xFE                       // all image-structure markers; no comments
+      || m === 0xE0                                         // JFIF
+      || m === 0xEE                                         // Adobe colour transform
+      || (m === 0xE2 && dec.decode(payload.subarray(0, 11)) === 'ICC_PROFILE');   // colour profile
+    if (m === 0xDA) {                                       // SOS: copy header + entropy-coded data up to the next real marker
+      let q = end;
+      while (q < u8.length) {
+        if (u8[q] === 0xFF) { const n = u8[q + 1]; if (n === 0x00 || (n >= 0xD0 && n <= 0xD7)) { q += 2; continue; } break; }
+        q++;
+      }
+      segs.push(u8.subarray(p, q)); p = q; continue;
+    }
+    if (keep) segs.push(u8.subarray(p, end));
+    p = end;
+  }
+  return concat([new Uint8Array([0xFF, 0xD8]), ...(orient > 1 ? [minimalExif(orient)] : []), ...segs, new Uint8Array([0xFF, 0xD9])]);
+}
+function stripPng(u8) {
+  const DROP = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME']), out = [u8.subarray(0, 8)];
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  for (let p = 8; p + 12 <= u8.length;) {
+    const len = dv.getUint32(p), end = p + 12 + len, type = String.fromCharCode(...u8.subarray(p + 4, p + 8));
+    if (end > u8.length) throw new Error('truncated png');
+    if (!DROP.has(type)) out.push(u8.subarray(p, end));
+    p = end; if (type === 'IEND') break;
+  }
+  return concat(out);
+}
+async function reencode(file) {            // fallback for formats we can't strip in place (HEIC, WebP): slight quality loss
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.97));
+  if (!blob) throw new Error('encode failed');
+  return { blob, name: file.name.replace(/\.[^.]+$/, '') + '.jpg', note: 'Details removed, converted to JPEG' };
+}
+async function stripFile(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  if (u8[0] === 0xFF && u8[1] === 0xD8) return { blob: new Blob([stripJpeg(u8)], { type: 'image/jpeg' }), name: file.name, note: 'Details removed' };
+  if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) return { blob: new Blob([stripPng(u8)], { type: 'image/png' }), name: file.name, note: 'Details removed' };
+  return reencode(file);
+}
+
+// ---------- the light table ----------
+const received = [];      // { blob, name } for "Save all"
+let toastTimer;
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('hidden'), 2200); }
+function shareFile(blob, name) {
+  const type = MIME[ext(name)];
+  const f = type && typeof File === 'function' && new File([blob], name, { type });
+  return f && navigator.canShare && navigator.canShare({ files: [f] }) ? f : null;
+}
+function tableChanged() { $('empty').classList.toggle('hidden', $('log').children.length > 0); $('saveall').classList.toggle('hidden', received.length === 0); }
+
+function addItem({ dir, name, size, text, note }) {
+  if (text != null) {
+    const el = document.createElement('div'); el.className = 'note';
+    const sub = document.createElement('div'); sub.className = 'sub'; sub.textContent = dir === 'out' ? 'You sent' : 'Received';
+    const pre = document.createElement('pre'); pre.textContent = text;
+    const b = document.createElement('button'); b.className = 'btn quiet small'; b.type = 'button'; b.textContent = 'Copy';
+    b.onclick = () => navigator.clipboard?.writeText(text).then(() => toast('Copied'));
+    el.append(sub, pre, b); $('log').prepend(el); tableChanged();
+    return { progress() {}, done() {}, fail() {} };
+  }
+  const el = document.createElement('figure'); el.className = 'slide mount arrive'; el.style.margin = '0';
+  const win = document.createElement('div'); win.className = 'window';
+  const e = document.createElement('span'); e.className = 'ext'; e.textContent = ext(name) || 'file'; win.append(e);
+  const tag = document.createElement('span'); tag.className = 'dir'; tag.textContent = dir === 'out' ? 'Sent' : 'Received'; win.append(tag);
+  const prog = document.createElement('div'); prog.className = 'prog'; const bar = document.createElement('i'); prog.append(bar); win.append(prog);
+  const cap = document.createElement('figcaption'); cap.className = 'label';
+  const nm = document.createElement('span'); nm.className = 'name'; nm.textContent = name || 'file'; nm.title = name || '';
+  const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = (size != null ? fmt(size) : '') + (note ? ', ' + note.toLowerCase() : '');
+  cap.append(nm, sub); el.append(win, cap);
+  $('log').prepend(el); tableChanged();
+  const preview = blob => {
+    if (!(IMG_OK.test(blob.type) && blob.size < 40e6)) return;
+    const url = URL.createObjectURL(blob), img = document.createElement('img');
+    img.alt = name || 'photo'; img.src = url; e.replaceWith(img);
+    return url;
+  };
+  return {
+    progress: f => { bar.style.width = Math.round(f * 100) + '%'; },
+    setPreview: blob => preview(blob),
+    done: (blob, fname) => {
+      prog.remove();
+      if (!blob) return;                                    // our own sent file: already previewed
+      const nameSafe = safeName(fname);
+      const url = preview(blob) || URL.createObjectURL(blob);
+      received.push({ blob, name: nameSafe }); tableChanged();
+      const acts = document.createElement('div'); acts.className = 'actions';
+      const f = shareFile(blob, nameSafe);
+      if (f) { const s = document.createElement('button'); s.className = 'btn small'; s.type = 'button'; s.textContent = 'Save';
+               s.onclick = ev => { ev.stopPropagation(); navigator.share({ files: [f] }).catch(() => {}); }; acts.append(s); }
+      const a = document.createElement('a'); a.className = 'btn quiet small'; a.href = url; a.download = nameSafe; a.textContent = 'Download';
+      a.onclick = ev => ev.stopPropagation(); acts.append(a);
+      cap.append(acts);
+      if (IMG_OK.test(blob.type)) { el.classList.add('clickable'); el.tabIndex = 0; el.onclick = () => openViewer(url, nameSafe, f);
+        el.onkeydown = ev => { if (ev.key === 'Enter') openViewer(url, nameSafe, f); }; }
+    },
+    fail: m => { prog.remove(); const d = document.createElement('span'); d.className = 'err'; d.textContent = m; cap.append(d); },
+  };
+}
+function openViewer(url, name, f) {
+  $('vimg').src = url; $('vimg').alt = name; $('vdl').href = url; $('vdl').download = name;
+  $('vshare').classList.toggle('hidden', !f); $('vshare').onclick = () => navigator.share({ files: [f] }).catch(() => {});
+  $('viewer').showModal();
+}
+
+// ---------- session ----------
+let role, key, ks, peer, conn, incoming = new Map(), closed = false, busy = 0, wake = null;
+const peerRole = () => role === 'host' ? 'guest' : 'host';
+const show = (id, on) => $(id).classList.toggle('hidden', !on);
+function setState(text, state) { $('sstatus').textContent = text; $('dot').className = 'dot' + (state ? ' ' + state : ''); }
+async function keepAwake(on) {
+  try { if (on && !wake && navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); if (!on && wake) { await wake.release(); wake = null; } } catch {}
+}
+function ended(title, msg) {
+  if (closed) return; closed = true;
+  show('session', false); show('pair', false); show('again', true); show('codewrap', false);
+  $('againtitle').textContent = title; $('againmsg').textContent = msg;
+  setState('Not connected', 'bad'); keepAwake(false);
+  try { conn && conn.close(); peer && peer.destroy(); } catch {}
+}
+
+function wire(c) {
+  conn = c;
+  c.on('open', async () => {
+    setState('Connected', 'on'); show('pair', false); show('session', true);
+    $('code').textContent = await sessionCode(ks); show('codewrap', true);
+    keepAwake(true);
+  });
+  c.on('close', () => ended('Disconnected', 'The other device left or closed the page.'));
+  c.on('error', () => ended('Connection lost', 'The connection dropped. Start again and scan the new code.'));
+  c.on('data', enqueue);
+}
+// Handle messages strictly in arrival order: decrypting is async, so without this a
+// short 'end' message could be processed before the chunks that precede it.
+let queue = Promise.resolve();
+const enqueue = m => (queue = queue.then(() => onData(m)));
+
+async function onData(m) {
+  try {
+    const from = peerRole();
+    if (m.t === 'text') {
+      addItem({ dir: 'in', text: dec.decode(await unseal(key, m.c, `${from}|text`)) });
+    } else if (m.t === 'start') {
+      const hdr = JSON.parse(dec.decode(await unseal(key, m.h, `${from}|${m.id}|h`)));
+      if (!(hdr.size >= 0) || hdr.size > MAX_BYTES) throw new Error('file too large');
+      busy++;
+      incoming.set(m.id, { hdr, parts: [], got: 0, ui: addItem({ dir: 'in', name: safeName(hdr.name), size: hdr.size }) });
+    } else if (m.t === 'chunk') {
+      const t = incoming.get(m.id); if (!t) return;
+      const plain = await unseal(key, m.c, `${from}|${m.id}|${m.i}`);
+      t.parts[m.i] = plain; t.got += plain.byteLength;
+      if (t.got > t.hdr.size) throw new Error('more data than announced');
+      t.ui.progress(t.hdr.size ? t.got / t.hdr.size : 1);
+    } else if (m.t === 'end') {
+      const t = incoming.get(m.id); if (!t) return; incoming.delete(m.id); busy--;
+      const ok = t.parts.length === m.n && t.got === t.hdr.size && t.parts.every(Boolean);
+      if (!ok) return t.ui.fail('Arrived incomplete. Ask for it again.');
+      t.ui.done(new Blob(t.parts, { type: IMG_OK.test(t.hdr.type) ? t.hdr.type : 'application/octet-stream' }), t.hdr.name);
+    }
+  } catch (e) {
+    addItem({ dir: 'in', name: 'Blocked item' }).fail('Failed the security check and was discarded.');
+  }
+}
+
+async function sendText(text) {
+  if (!conn || !conn.open || !text.trim()) return;
+  conn.send({ t: 'text', c: await seal(key, enc.encode(text), `${role}|text`) });
+  addItem({ dir: 'out', text });
+}
+
+async function sendFile(file) {
+  if (!conn || !conn.open) return;
+  if (file.size > MAX_BYTES) return addItem({ dir: 'out', name: file.name, size: file.size }).fail('Too large. The limit is 1 GB.');
+  let blob = file, name = file.name, note;
+  if ($('modeStrip').checked && strippable(file)) {
+    try { ({ blob, name, note } = await stripFile(file)); }
+    catch { return addItem({ dir: 'out', name: file.name, size: file.size }).fail('Couldn\'t remove the details from this photo. Choose "Send the original" to send it as it is.'); }
+  }
+  const ui = addItem({ dir: 'out', name, size: blob.size, note });
+  ui.setPreview && ui.setPreview(blob);
+  busy++;
+  try {
+    const id = b64.enc(crypto.getRandomValues(new Uint8Array(9)));
+    conn.send({ t: 'start', id, h: await seal(key, enc.encode(JSON.stringify({ name, type: blob.type, size: blob.size })), `${role}|${id}|h`) });
+    let i = 0;
+    for (let off = 0; off < blob.size; off += CHUNK, i++) {
+      const buf = await blob.slice(off, off + CHUNK).arrayBuffer();
+      while (conn.dataChannel && conn.dataChannel.bufferedAmount > 4e6) await sleep(25);   // backpressure
+      conn.send({ t: 'chunk', id, i, c: await seal(key, buf, `${role}|${id}|${i}`) });
+      ui.progress(Math.min(1, (off + buf.byteLength) / blob.size));
+    }
+    conn.send({ t: 'end', id, n: i });
+    ui.done(null);
+  } finally { busy--; }
+}
+
+async function sendFiles(list) { for (const f of list) await sendFile(f); }
+
+// ---------- start-up ----------
+async function startHost() {
+  role = 'host'; closed = false; incoming.clear();
+  show('again', false); show('session', false); show('pair', true); show('codewrap', false);
+  $('qr').textContent = ''; setState('Waiting for your phone');
+  key = await newKey();
+  ks = await exportKey(key);
+  peer = new Peer();
+  let paired = false;
+  peer.on('open', id => {
+    const url = location.origin + location.pathname + '#' + id + '.' + ks;
+    const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+    $('qr').innerHTML = qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+    $('copy').onclick = () => navigator.clipboard?.writeText(url).then(() => toast('Link copied. Keep it private.'));
+  });
+  peer.on('error', e => ended('Couldn\'t start', 'Check your internet connection and start again. (' + e.type + ')'));
+  peer.on('connection', c => {
+    if (paired) { c.on('open', () => c.close()); return; }   // only the first device
+    paired = true; wire(c);
+  });
+}
+
+async function startGuest(target, k) {
+  role = 'guest'; closed = false; incoming.clear(); ks = k;
+  show('session', true); setState('Connecting to your computer');
+  try { key = await importKey(k); } catch { return ended('This link is incomplete', 'Scan the QR code on your computer again.'); }
+  history.replaceState(null, '', location.pathname);   // drop the key from the address bar and history
+  peer = new Peer();
+  peer.on('open', () => {
+    wire(peer.connect(target, { reliable: true }));
+    setTimeout(() => { if (!closed && !(conn && conn.open)) ended('Couldn\'t connect', 'Make sure the page is still open on your computer, then scan the code again. Being on the same Wi-Fi helps.'); }, 25000);
+  });
+  peer.on('error', e => ended('Couldn\'t connect', e.type === 'peer-unavailable'
+    ? 'That code has expired. Scan the new code on your computer.'
+    : 'Check your internet connection and scan the code again.'));
+}
+
+$('file').addEventListener('change', e => { sendFiles([...e.target.files]); e.target.value = ''; });
+$('sendtxt').onclick = () => { sendText($('msg').value); $('msg').value = ''; };
+$('msg').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('sendtxt').onclick(); });
+$('modeStrip').addEventListener('change', () => { $('modehint').textContent = 'Same image quality. Only the hidden details are removed.'; });
+$('modeOrig').addEventListener('change', () => { $('modehint').textContent = 'The file is sent exactly as it is, including location and camera details.'; });
+$('leave').onclick = () => ended('Disconnected', 'You ended the session.');
+$('newcode').onclick = () => { try { peer && peer.destroy(); } catch {} startHost(); };
+$('restart').onclick = () => { try { peer && peer.destroy(); } catch {} location.hash ? location.assign(location.pathname) : startHost(); };
+$('vclose').onclick = () => $('viewer').close();
+$('saveall').onclick = async () => {
+  const files = received.map(r => shareFile(r.blob, r.name)).filter(Boolean);
+  if (files.length === received.length && navigator.canShare && navigator.canShare({ files })) return navigator.share({ files }).catch(() => {});
+  for (const r of received) { const a = document.createElement('a'); a.href = URL.createObjectURL(r.blob); a.download = r.name; a.click(); await sleep(250); }
+};
+
+// drag anywhere, paste anywhere
+let dragDepth = 0;
+const connected = () => conn && conn.open;
+document.addEventListener('dragenter', e => { if (!connected()) return; e.preventDefault(); dragDepth++; document.body.classList.add('dropping'); });
+document.addEventListener('dragover', e => { if (connected()) e.preventDefault(); });
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dropping'); } });
+document.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove('dropping'); if (connected()) sendFiles([...e.dataTransfer.files]); });
+document.addEventListener('paste', e => {
+  if (!connected() || e.target.tagName === 'TEXTAREA') return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) sendFiles(files); else { const t = e.clipboardData?.getData('text'); if (t) sendText(t); }
+});
+globalThis.addEventListener?.('beforeunload', e => { if (busy > 0) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && connected()) keepAwake(true); });
+if (globalThis.matchMedia && !matchMedia('(hover: hover)').matches) document.querySelectorAll('.desktop-only').forEach(n => n.remove());
+
+const [target, k0] = location.hash.slice(1).split('.');
+target ? startGuest(target, k0) : startHost();
+</script>
+</body>
+</html>
