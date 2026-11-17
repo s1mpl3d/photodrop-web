@@ -174,7 +174,7 @@
       <details class="how panel">
         <summary>How it works</summary>
         <p><b>Direct.</b> Your devices connect to each other with WebRTC. Files never touch this website.</p>
-        <p><b>The code is the key.</b> The QR link ends in <code>#ID.KEY</code>. The part after <code>#</code> stays in your browser and is never sent anywhere. Everything is encrypted with that key (AES-256-GCM) before it leaves your device.</p>
+        <p><b>The code is the key.</b> The QR link ends in <code>#ID.KEY</code>. The part after <code>#</code> stays in your browser and is never sent anywhere. Everything is encrypted with that key (AES-256-GCM) before it leaves your device. Your computer only accepts a device that proves it has the key, so knowing the room ID alone gets nobody in.</p>
         <p><b>Finding each other.</b> A public PeerJS server introduces the two browsers. It sees an anonymous ID and IP addresses, never your files. If a direct path is blocked, a relay passes the data along, still encrypted.</p>
         <p><b>Photo details.</b> "Remove location and camera info" cuts the hidden data (GPS, camera, date) out of JPEG and PNG files without touching the image. Other formats, like HEIC, are converted to high-quality JPEG.</p>
         <p><b>Limits.</b> Keep both pages open while sending. Files are held in memory, up to 1 GB each.</p>
@@ -387,7 +387,7 @@ function openViewer(url, name, f) {
 }
 
 // ---------- session ----------
-let role, key, ks, peer, conn, incoming = new Map(), textIvs = new Set(), closed = false, busy = 0, wake = null;
+let role, key, ks, peer, conn, incoming = new Map(), textIvs = new Set(), closed = false, busy = 0, wake = null, ready = false, proofSent = false;
 const peerRole = () => role === 'host' ? 'guest' : 'host';
 const show = (id, on) => $(id).classList.toggle('hidden', !on);
 function setState(text, state) { $('sstatus').textContent = text; $('dot').className = 'dot' + (state ? ' ' + state : ''); }
@@ -402,13 +402,15 @@ function ended(title, msg) {
   try { conn && conn.close(); peer && peer.destroy(); } catch {}
 }
 
+// Called once the key check has passed: the host after a valid proof, the guest after sending it.
+async function onVerified() {
+  ready = true;
+  setState('Connected', 'on'); show('pair', false); show('session', true);
+  $('code').textContent = await sessionCode(ks); show('codewrap', true);
+  keepAwake(true);
+}
 function wire(c) {
   conn = c;
-  c.on('open', async () => {
-    setState('Connected', 'on'); show('pair', false); show('session', true);
-    $('code').textContent = await sessionCode(ks); show('codewrap', true);
-    keepAwake(true);
-  });
   c.on('close', () => ended('Disconnected', 'The other device left or closed the page.'));
   c.on('error', () => ended('Connection lost', 'The connection dropped. Start again and scan the new code.'));
   c.on('data', enqueue);
@@ -421,6 +423,14 @@ const enqueue = m => (queue = queue.then(() => onData(m)));
 async function onData(m) {
   try {
     const from = peerRole();
+    if (m.t === 'chal') {
+      // host asks us to prove we hold the key: encrypt its random challenge, once per session
+      if (role !== 'guest' || proofSent || typeof m.n !== 'string' || b64.dec(m.n).length !== 16) throw new Error('bad challenge');
+      proofSent = true;
+      conn.send({ t: 'proof', c: await seal(key, b64.dec(m.n), `guest|proof|${m.n}`) });
+      return onVerified();
+    }
+    if (!ready) throw new Error('not verified');
     if (m.t === 'text') {
       // a sender never reuses a random 96-bit IV, and a replay can't change it without failing the tag
       const iv = b64.enc(new Uint8Array(m.c.iv));
@@ -453,13 +463,13 @@ async function onData(m) {
 }
 
 async function sendText(text) {
-  if (!conn || !conn.open || !text.trim()) return;
+  if (!ready || !conn || !conn.open || !text.trim()) return;
   conn.send({ t: 'text', c: await seal(key, enc.encode(text), `${role}|text`) });
   addItem({ dir: 'out', text });
 }
 
 async function sendFile(file) {
-  if (!conn || !conn.open) return;
+  if (!ready || !conn || !conn.open) return;
   if (file.size > MAX_BYTES) return addItem({ dir: 'out', name: file.name, size: file.size }).fail('Too large. The limit is 1 GB.');
   let blob = file, name = file.name, note;
   if ($('modeStrip').checked && strippable(file)) {
@@ -488,7 +498,7 @@ async function sendFiles(list) { for (const f of list) await sendFile(f); }
 
 // ---------- start-up ----------
 async function startHost() {
-  role = 'host'; closed = false; incoming.clear(); textIvs.clear();
+  role = 'host'; closed = false; ready = false; incoming.clear(); textIvs.clear();
   show('again', false); show('session', false); show('pair', true); show('codewrap', false);
   $('qr').textContent = ''; setState('Waiting for your phone');
   key = await newKey();
@@ -502,21 +512,42 @@ async function startHost() {
     $('copy').onclick = () => navigator.clipboard?.writeText(url).then(() => toast('Link copied. Keep it private.'));
   });
   peer.on('error', e => ended('Couldn\'t start', 'Check your internet connection and start again. (' + e.type + ')'));
+  let pending = 0;
   peer.on('connection', c => {
-    if (paired) { c.on('open', () => c.close()); return; }   // only the first device
-    paired = true; wire(c);
+    // Knowing the room ID is not enough: only a device that proves it holds the key takes the
+    // session. Others are dropped and the QR code keeps working for your phone.
+    if (paired || pending >= 8) { c.on('open', () => c.close()); return; }
+    pending++;
+    let settled = false;
+    const n = b64.enc(crypto.getRandomValues(new Uint8Array(16)));
+    const reject = () => { if (settled) return; settled = true; pending--; clearTimeout(timer); try { c.close(); } catch {} };
+    const timer = setTimeout(reject, 10000);
+    const onProof = async m => {
+      c.removeListener('data', onProof);
+      if (settled) return;
+      try {
+        if (!m || m.t !== 'proof') throw 0;
+        if (b64.enc(new Uint8Array(await unseal(key, m.c, `guest|proof|${n}`))) !== n) throw 0;
+      } catch { return reject(); }
+      if (settled || paired) return reject();
+      settled = true; pending--; clearTimeout(timer); paired = true;
+      wire(c); onVerified();
+    };
+    c.on('data', onProof);
+    c.on('close', reject); c.on('error', reject);
+    c.on('open', () => c.send({ t: 'chal', n }));
   });
 }
 
 async function startGuest(target, k) {
-  role = 'guest'; closed = false; incoming.clear(); textIvs.clear(); ks = k;
+  role = 'guest'; closed = false; ready = false; proofSent = false; incoming.clear(); textIvs.clear(); ks = k;
   show('session', true); setState('Connecting to your computer');
   try { key = await importKey(k); } catch { return ended('This link is incomplete', 'Scan the QR code on your computer again.'); }
   history.replaceState(null, '', location.pathname);   // drop the key from the address bar and history
   peer = new Peer();
   peer.on('open', () => {
     wire(peer.connect(target, { reliable: true }));
-    setTimeout(() => { if (!closed && !(conn && conn.open)) ended('Couldn\'t connect', 'Make sure the page is still open on your computer, then scan the code again. Being on the same Wi-Fi helps.'); }, 25000);
+    setTimeout(() => { if (!closed && !ready) ended('Couldn\'t connect', 'Make sure the page is still open on your computer, then scan the code again. Being on the same Wi-Fi helps.'); }, 25000);
   });
   peer.on('error', e => ended('Couldn\'t connect', e.type === 'peer-unavailable'
     ? 'That code has expired. Scan the new code on your computer.'
@@ -541,7 +572,7 @@ $('saveall').onclick = async () => {
 
 // drag anywhere, paste anywhere
 let dragDepth = 0;
-const connected = () => conn && conn.open;
+const connected = () => ready && conn && conn.open;
 document.addEventListener('dragenter', e => { if (!connected()) return; e.preventDefault(); dragDepth++; document.body.classList.add('dropping'); });
 document.addEventListener('dragover', e => { if (connected()) e.preventDefault(); });
 document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dropping'); } });
