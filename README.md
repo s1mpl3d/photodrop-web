@@ -33,4 +33,4 @@ Camera scanning and the clipboard need HTTPS or `localhost`.
 
 ## License
 
-MIT. Bundled libraries keep their own licenses: PeerJS (MIT), qrcode-generator (MIT).
+BSD 3-Clause. Bundled libraries keep their own licenses: PeerJS (MIT), qrcode-generator (MIT).
