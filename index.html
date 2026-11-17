@@ -104,6 +104,7 @@
   .viewer { display:flex; flex-direction:column; gap:10px; align-items:center; }
   .viewer img { max-width:100%; max-height:80vh; border-radius:8px; display:block; }
   .viewer .row { justify-content:center; }
+  .viewer .vnote { margin:0; color:#d6dde3; font-size:.85rem; text-align:center; }
 
   .toast { position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--ink); color:var(--room);
            padding:10px 16px; border-radius:12px; font-size:.9rem; z-index:10; }
@@ -154,6 +155,7 @@
           </div>
           <p class="hint" id="modehint">Same image quality. Only the hidden details are removed.</p>
           <p class="hint desktop-only">You can also drop files anywhere on this page or paste them.</p>
+          <p class="hint hidden" id="ioshint">For full quality, take the photo in the Camera app, then choose it from your Photo Library. Taking it from here gives a smaller, more compressed photo. In the picker, tap Options and choose Current to keep the original format.</p>
         </div>
         <div class="panel">
           <h2>Message</h2>
@@ -186,6 +188,7 @@
         <button id="saveall" class="btn quiet small hidden" type="button">Save all received</button>
       </div>
       <p id="empty" class="empty">Photos and messages you send or receive appear here.</p>
+      <p id="prevhint" class="hint hidden">Previews are lower quality. Download a photo to get the full-size file.</p>
       <div id="log" class="grid"></div>
     </main>
   </div>
@@ -194,6 +197,7 @@
 <dialog id="viewer" aria-label="Photo viewer">
   <div class="viewer">
     <img id="vimg" alt="">
+    <p class="vnote">Preview, lower quality. Download for the full-size file.</p>
     <div class="row">
       <button id="vshare" class="btn small hidden" type="button">Save to Photos</button>
       <a id="vdl" class="btn small" href="#">Download</a>
@@ -323,7 +327,8 @@ function shareFile(blob, name) {
   const f = type && typeof File === 'function' && new File([blob], name, { type });
   return f && navigator.canShare && navigator.canShare({ files: [f] }) ? f : null;
 }
-function tableChanged() { $('empty').classList.toggle('hidden', $('log').children.length > 0); $('saveall').classList.toggle('hidden', received.length === 0); }
+function tableChanged() { $('empty').classList.toggle('hidden', $('log').children.length > 0); $('saveall').classList.toggle('hidden', received.length === 0);
+  $('prevhint').classList.toggle('hidden', !$('log').querySelector('img')); }
 
 function addItem({ dir, name, size, text, note }) {
   if (text != null) {
@@ -348,7 +353,9 @@ function addItem({ dir, name, size, text, note }) {
   const preview = blob => {
     if (!(IMG_OK.test(blob.type) && blob.size < 40e6)) return;
     const url = URL.createObjectURL(blob), img = document.createElement('img');
-    img.alt = name || 'photo'; img.src = url; e.replaceWith(img);
+    img.alt = name || 'photo';
+    img.onload = () => { sub.textContent = img.naturalWidth + '×' + img.naturalHeight + ', ' + sub.textContent; };  // real pixel size of the file
+    img.src = url; e.replaceWith(img); tableChanged();
     return url;
   };
   return {
@@ -519,6 +526,7 @@ async function startGuest(target, k) {
 $('file').addEventListener('change', e => { sendFiles([...e.target.files]); e.target.value = ''; });
 $('sendtxt').onclick = () => { sendText($('msg').value); $('msg').value = ''; };
 $('msg').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('sendtxt').onclick(); });
+if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) show('ioshint', true);
 $('modeStrip').addEventListener('change', () => { $('modehint').textContent = 'Same image quality. Only the hidden details are removed.'; });
 $('modeOrig').addEventListener('change', () => { $('modehint').textContent = 'The file is sent exactly as it is, including location and camera details.'; });
 $('leave').onclick = () => ended('Disconnected', 'You ended the session.');
