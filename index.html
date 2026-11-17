@@ -387,7 +387,7 @@ function openViewer(url, name, f) {
 }
 
 // ---------- session ----------
-let role, key, ks, peer, conn, incoming = new Map(), textIvs = new Set(), closed = false, busy = 0, wake = null, ready = false, proofSent = false;
+let role, key, ks, peer, conn, incoming = new Map(), textIvs = new Set(), closed = false, busy = 0, wake = null, ready = false, myNonce = null;
 const peerRole = () => role === 'host' ? 'guest' : 'host';
 const show = (id, on) => $(id).classList.toggle('hidden', !on);
 function setState(text, state) { $('sstatus').textContent = text; $('dot').className = 'dot' + (state ? ' ' + state : ''); }
@@ -424,10 +424,18 @@ async function onData(m) {
   try {
     const from = peerRole();
     if (m.t === 'chal') {
-      // host asks us to prove we hold the key: encrypt its random challenge, once per session
-      if (role !== 'guest' || proofSent || typeof m.n !== 'string' || b64.dec(m.n).length !== 16) throw new Error('bad challenge');
-      proofSent = true;
-      conn.send({ t: 'proof', c: await seal(key, b64.dec(m.n), `guest|proof|${m.n}`) });
+      // host asks us to prove we hold the key: encrypt its random challenge, once per session,
+      // and send our own challenge so the host has to prove it too
+      if (role !== 'guest' || myNonce || typeof m.n !== 'string' || b64.dec(m.n).length !== 16) throw new Error('bad challenge');
+      myNonce = b64.enc(crypto.getRandomValues(new Uint8Array(16)));
+      conn.send({ t: 'proof', n: myNonce, c: await seal(key, b64.dec(m.n), `guest|proof|${m.n}`) });
+      return;
+    }
+    if (m.t === 'hproof') {
+      if (role !== 'guest' || !myNonce || ready) throw new Error('unexpected proof');
+      let okHost = false;
+      try { okHost = b64.enc(new Uint8Array(await unseal(key, m.c, `host|proof|${myNonce}`))) === myNonce; } catch {}
+      if (!okHost) return ended('Couldn\'t connect', 'The other side couldn\'t prove it has this code. Scan the QR code on your computer again.');
       return onVerified();
     }
     if (!ready) throw new Error('not verified');
@@ -442,6 +450,8 @@ async function onData(m) {
       if (incoming.has(m.id)) throw new Error('replayed transfer');
       const hdr = JSON.parse(dec.decode(await unseal(key, m.h, `${from}|${m.id}|h`)));
       if (!(hdr.size >= 0) || hdr.size > MAX_BYTES) throw new Error('file too large');
+      const inflight = [...incoming.values()].reduce((s, t) => s + (t ? t.hdr.size : 0), 0);
+      if (inflight + hdr.size > MAX_BYTES) throw new Error('too much at once');   // cap memory held by unfinished transfers
       busy++;
       incoming.set(m.id, { hdr, n: Math.ceil(hdr.size / CHUNK), parts: [], got: 0, ui: addItem({ dir: 'in', name: safeName(hdr.name), size: hdr.size }) });
     } else if (m.t === 'chunk') {
@@ -526,12 +536,14 @@ async function startHost() {
       c.removeListener('data', onProof);
       if (settled) return;
       try {
-        if (!m || m.t !== 'proof') throw 0;
+        if (!m || m.t !== 'proof' || typeof m.n !== 'string' || b64.dec(m.n).length !== 16) throw 0;
         if (b64.enc(new Uint8Array(await unseal(key, m.c, `guest|proof|${n}`))) !== n) throw 0;
       } catch { return reject(); }
       if (settled || paired) return reject();
       settled = true; pending--; clearTimeout(timer); paired = true;
-      wire(c); onVerified();
+      wire(c);
+      c.send({ t: 'hproof', c: await seal(key, b64.dec(m.n), `host|proof|${m.n}`) });   // prove ourselves to the phone
+      onVerified();
     };
     c.on('data', onProof);
     c.on('close', reject); c.on('error', reject);
@@ -540,7 +552,7 @@ async function startHost() {
 }
 
 async function startGuest(target, k) {
-  role = 'guest'; closed = false; ready = false; proofSent = false; incoming.clear(); textIvs.clear(); ks = k;
+  role = 'guest'; closed = false; ready = false; myNonce = null; incoming.clear(); textIvs.clear(); ks = k;
   show('session', true); setState('Connecting to your computer');
   try { key = await importKey(k); } catch { return ended('This link is incomplete', 'Scan the QR code on your computer again.'); }
   history.replaceState(null, '', location.pathname);   // drop the key from the address bar and history
