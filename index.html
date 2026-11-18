@@ -9,7 +9,7 @@
   :root {
     --room:#E9EEF2; --table:#FFFFFF; --mount:#F7F6F2; --mount-edge:#D6D9DE; --ink:#1F2730; --ink-2:#5B6672;
     --act:#2457C5; --act-ink:#FFFFFF; --ok:#2E8B57; --bad:#C2352B; --line:#D3D9DF;
-    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root { --room:#161B21; --table:#222932; --mount:#2C343E; --mount-edge:#3A4450; --ink:#E7ECF1; --ink-2:#9AA6B2;
@@ -209,7 +209,7 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="vendor/peerjs.min.js"></script>
-<script src="vendor/qrcode.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const enc = new TextEncoder(), dec = new TextDecoder();
